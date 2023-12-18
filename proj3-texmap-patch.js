@@ -32,78 +32,94 @@ async function main() {
   let angle = [0, 0];
   let dragging = false;
 
-  canvas.onwheel = function (ev) {
-    fovy += ev.deltaY * 0.1;
-    fovy = Math.min(170, Math.max(3, fovy));
-    mat4.perspective(P, toRadian(fovy), 1, 1, 100);
-  };
+  // mouse event handling
+  {
+    canvas.onwheel = function (ev) {
+      fovy += ev.deltaY * 0.1;
+      fovy = Math.min(170, Math.max(3, fovy));
+      mat4.perspective(P, toRadian(fovy), 1, 1, 100);
+    };
 
-  canvas.onmousedown = function (ev) {
-    let bb = ev.target.getBoundingClientRect();
-    let x = ev.clientX - bb.left;
-    let y = bb.bottom - ev.clientY;
-    let id = points.get_point_id(gl, { x, y }, V, P);
+    canvas.onmousedown = function (ev) {
+      let bb = ev.target.getBoundingClientRect();
+      let x = ev.clientX - bb.left;
+      let y = bb.bottom - ev.clientY;
+      let id = points.get_point_id(gl, { x, y }, V, P);
 
-    if (id >= 0 && id < points.count) {
-      points.selected = id;
-      document.querySelector(
-        "#console"
-      ).innerHTML = `Point #${points.selected} is selected.`;
-    } else {
+      if (id >= 0 && id < points.count) {
+        points.selected = id;
+        document.querySelector(
+          "#console"
+        ).innerHTML = `Point #${points.selected} is selected.`;
+      } else {
+        points.selected = -1;
+        document.querySelector("#console").innerHTML = "No point is selected.";
+      }
+
+      if (
+        x >= 0 &&
+        x < canvas.clientWidth &&
+        y >= 0 &&
+        y < canvas.clientHeight
+      ) {
+        lastX = x;
+        lastY = y;
+        dragging = true;
+      }
+    };
+    canvas.onmouseup = function (ev) {
+      dragging = false;
       points.selected = -1;
-      document.querySelector("#console").innerHTML = "No point is selected.";
-    }
+    };
 
-    if (x >= 0 && x < canvas.clientWidth && y >= 0 && y < canvas.clientHeight) {
+    const VP = mat4.create();
+    canvas.onmousemove = function (ev) {
+      let bb = ev.target.getBoundingClientRect();
+      let x = ev.clientX - bb.left;
+      let y = bb.bottom - ev.clientY;
+      if (dragging) {
+        mat4.copy(VP, P);
+        mat4.multiply(VP, VP, V);
+        let viewport = gl.getParameter(gl.VIEWPORT);
+        if (points.selected == -1) {
+          let offset = [x - lastX, -(y - lastY)];
+          if (offset[0] != 0 || offset[1] != 0) {
+            // In case the offset becomes zero...
+            let axis = unproject_vector(
+              [offset[1], offset[0], 0],
+              VP,
+              viewport
+            );
+            mat4.rotate(V, V, toRadian(length2(offset)), [
+              axis[0],
+              axis[1],
+              axis[2],
+            ]);
+          }
+        } else {
+          let p_obj = points.get_point_selected();
+          let p_win = project(p_obj, VP, viewport);
+          let p_new = unproject([x, y, p_win[2]], VP, viewport);
+          points.update_point_selected(p_new);
+          document.querySelector("#console").innerHTML = `Position of point #${
+            points.selected
+          }: (${Array.from(p_new.subarray(0, 3)).map((x) => x.toFixed(2))})`;
+        }
+      }
       lastX = x;
       lastY = y;
-      dragging = true;
-    }
-  };
-  canvas.onmouseup = function (ev) {
-    dragging = false;
-    points.selected = -1;
-  };
+    };
+  }
 
-  const VP = mat4.create();
-  canvas.onmousemove = function (ev) {
-    let bb = ev.target.getBoundingClientRect();
-    let x = ev.clientX - bb.left;
-    let y = bb.bottom - ev.clientY;
-    if (dragging) {
-      mat4.copy(VP, P);
-      mat4.multiply(VP, VP, V);
-      let viewport = gl.getParameter(gl.VIEWPORT);
-      if (points.selected == -1) {
-        let offset = [x - lastX, -(y - lastY)];
-        if (offset[0] != 0 || offset[1] != 0) {
-          // In case the offset becomes zero...
-          let axis = unproject_vector([offset[1], offset[0], 0], VP, viewport);
-          mat4.rotate(V, V, toRadian(length2(offset)), [
-            axis[0],
-            axis[1],
-            axis[2],
-          ]);
-        }
-      } else {
-        let p_obj = points.get_point_selected();
-        let p_win = project(p_obj, VP, viewport);
-        let p_new = unproject([x, y, p_win[2]], VP, viewport);
-        points.update_point_selected(p_new);
-        document.querySelector("#console").innerHTML = `Position of point #${
-          points.selected
-        }: (${Array.from(p_new.subarray(0, 3)).map((x) => x.toFixed(2))})`;
-      }
-    }
-    lastX = x;
-    lastY = y;
-  };
+  // 전역 prameter 초기화
+  // directional light
   const sun = {
     direction: [0, 0, 1], // in camera coordinate system
     ambient: [0.1, 0.1, 0.1],
     diffusive: [1, 1, 1],
     specular: [1, 1, 1],
   };
+  // gold metarial
   const gold = {
     ambient: [0.24725, 0.1995, 0.0745],
     diffusive: [0.75164, 0.60648, 0.22648],
@@ -111,6 +127,7 @@ async function main() {
     shininess: 128.0 * 0.4,
   };
 
+  // glsl source code upload
   // initialize the axes
   let sources_axes = await fetch_shader_files("./axes.vert", "./axes.frag");
   sources_axes[0] = sources_axes[0].replace("${loc_aPosition}", loc_aPosition);
@@ -153,6 +170,7 @@ async function main() {
   let patch = new Patch(gl, 20, img, sources[0], sources[1], sun, gold);
 
   let MVP = mat4.create();
+  // rendering
   let tick = function () {
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     axes.render(gl, V, P);
@@ -160,9 +178,9 @@ async function main() {
     points.upload_data(gl);
     points.render(gl, V, P);
 
-    patch.render(gl, V, P);
+    // patch.render(gl, V, P);
 
-    requestAnimationFrame(tick, canvas); // Request that the browser calls tick
+    requestAnimationFrame(tick);
   };
   tick();
 }
@@ -180,6 +198,7 @@ class Shader {
         );
       }
     } else {
+      // shader source에서 uniform변수를 가져옴
       let num_uniforms = gl.getProgramParameter(
         this.h_prog,
         gl.ACTIVE_UNIFORMS
@@ -246,50 +265,27 @@ class Shader {
 class Axes {
   constructor(gl, src_vert, src_frag, length = 2) {
     this.MVP = mat4.create();
-    if (!Axes.shader) Axes.shader = new Shader(gl, src_vert, src_frag);
+    if (!Axes.shader) Axes.shader = new Shader(gl, src_vert, src_frag); // class static variable
     this.init_vbo(gl, length);
   }
   init_vbo(gl, l) {
     this.vao = gl.createVertexArray();
     gl.bindVertexArray(this.vao);
 
+    // prettier-ignore
     const vertices = new Float32Array([
-      0,
-      0,
-      0,
-      1,
-      0,
-      0,
-      l,
-      0,
-      0,
-      1,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      1,
-      0,
-      0,
-      l,
-      0,
-      0,
-      1,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      1,
-      0,
-      0,
-      l,
-      0,
-      0,
-      1,
+      0, 0, 0, // position
+      1, 0, 0, // color
+      l, 0, 0,
+      1, 0, 0,
+      0, 0, 0,
+      0, 1, 0,
+      0, l, 0,
+      0, 1, 0,
+      0, 0, 0,
+      0, 0, 1,
+      0, 0, l,
+      0, 0, 1,
     ]);
     const vbo = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
@@ -499,8 +495,15 @@ class Points {
 
   init_vbo(gl, l) {
     this.count = 8;
+    // prettier-ignore
     this.points = new Float32Array([
-      -1, -1, -1, -1, 1, -1, 1, 1, -1, 1, -1, -1, -1, -1, 1, -1, 1, 1, 1, 1, 1,
+      -1, -1, -1, 
+      -1, 1, -1, 
+      1, 1, -1, 
+      1, -1, -1,
+      -1, -1, 1, 
+      -1, 1, 1, 
+      1, 1, 1,
       1, -1, 1,
     ]);
 
