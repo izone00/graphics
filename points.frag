@@ -8,7 +8,10 @@ out vec4 fColor;
 void main()
 {
     if(length(gl_PointCoord.xy-vec2(0.5)) > 0.5)   discard; 
-    fColor = uColor;
+    fColor = vColor;
+    if (vColor.r * 16.0 < 0.5)
+        fColor.r *= 16.0 * 2.0;
+    
 }
 
 

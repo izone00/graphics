@@ -1,4 +1,6 @@
+/** @type {mat4} */
 import * as mat4 from "../lib/gl-matrix/mat4.js";
+/** @type {vec4} */
 import * as vec4 from "../lib/gl-matrix/vec4.js";
 import { toRadian } from "../lib/gl-matrix/common.js";
 
@@ -14,6 +16,7 @@ const loc_aDv = 5;
 const TEXUNIT_PATCH = 1;
 
 async function main() {
+  /** @type {HTMLCanvasElement} */
   const canvas = document.getElementById("webgl");
   const gl = canvas.getContext("webgl2");
 
@@ -159,15 +162,30 @@ async function main() {
     canvas.clientHeight
   );
 
-  // initialize the patch
-  let img = await load_image("./proj3.png");
-  let sources = await fetch_shader_files(
-    "./texmap-patch.vert",
-    "./texmap-patch.frag"
-  );
+  // initialize the donut
+  const img = await load_image("./proj3.png");
+  const sources = await fetch_shader_files("./donut.vert", "./donut.frag");
   sources[0] = sources[0].replace("${loc_aTexCoords}", loc_aTexCoords);
+  const donut = new Donut(
+    gl,
+    20,
+    img,
+    sources[0],
+    sources[1],
+    sun,
+    gold,
+    points.points
+  );
 
-  let patch = new Patch(gl, 20, img, sources[0], sources[1], sun, gold);
+  // initialize the patch
+  // let img = await load_image("./proj3.png");
+  // let sources = await fetch_shader_files(
+  //   "./texmap-patch.vert",
+  //   "./texmap-patch.frag"
+  // );
+  // sources[0] = sources[0].replace("${loc_aTexCoords}", loc_aTexCoords);
+
+  // let patch = new Patch(gl, 20, img, sources[0], sources[1], sun, gold);
 
   let MVP = mat4.create();
   // rendering
@@ -179,6 +197,7 @@ async function main() {
     points.render(gl, V, P);
 
     // patch.render(gl, V, P);
+    donut.render(gl, V, P, points.points);
 
     requestAnimationFrame(tick);
   };
@@ -272,6 +291,7 @@ class Axes {
     this.vao = gl.createVertexArray();
     gl.bindVertexArray(this.vao);
 
+    // color: (r, g, b) == (x, y, z)에 대응
     // prettier-ignore
     const vertices = new Float32Array([
       0, 0, 0, // position
@@ -483,6 +503,117 @@ class Patch {
   }
 }
 
+class Donut {
+  /**
+   * @param {WebGL2RenderingContext} gl
+   */
+  constructor(gl, N, image, src_vert, src_frag, light, material, points) {
+    this.init_donut(gl, N);
+    this.shader = new Shader(gl, src_vert, src_frag, [
+      "MVP",
+      "uControlPoints",
+      "uConnectivity",
+    ]);
+    this.points = points;
+    console.log(this.shader.loc_uniforms);
+
+    gl.useProgram(this.shader.h_prog);
+    // prettier-ignore
+    const conn = new Float32Array([
+      5, 8, 7, 6,
+      13, 16, 15, 14,
+      9, 12, 11, 10,
+      1, 4, 3, 2,
+
+      9,12,11,10,1,4,3,2,5,8,7,6,13,16,15,14,
+      1,4,3,2,5,8,7,6,13,16,15,14,9,12,11,10,
+      13,16,15,14,9,12,11,10,1,4,3,2,5,8,7,6,
+
+    //   8, 7, 6, 5,
+    //   16, 15, 14, 13,
+    //   12, 11, 10, 9,
+    //   4, 3, 2, 1,
+    ]);
+    gl.uniformMatrix4fv(this.shader.loc_uniforms["uConnectivity"], false, conn);
+    gl.useProgram(null);
+  }
+
+  init_donut(gl, N) {
+    const texcoord = [];
+    for (let row = 0; row <= N; row++) {
+      for (let col = 0; col <= N; col++) {
+        texcoord.push(row / N);
+        texcoord.push(col / N);
+      }
+    }
+
+    const indices = [];
+    for (let row = 0; row < N; row++) {
+      for (let col = 0; col < N; col++) {
+        indices.push(row + col * (N + 1));
+        indices.push(row + (col + 1) * (N + 1));
+        indices.push(row + col * (N + 1) + 1);
+
+        indices.push(row + col * (N + 1) + 1);
+        indices.push(row + (col + 1) * (N + 1));
+        indices.push(row + 1 + (col + 1) * (N + 1));
+      }
+    }
+
+    this.vao = gl.createVertexArray();
+    gl.bindVertexArray(this.vao);
+
+    var buf_texcoord = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf_texcoord);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(texcoord), gl.STATIC_DRAW);
+
+    const texVertexSize = 2;
+    gl.vertexAttribPointer(
+      loc_aTexCoords,
+      texVertexSize,
+      gl.FLOAT,
+      false,
+      0,
+      0
+    );
+    gl.enableVertexAttribArray(loc_aTexCoords);
+
+    var buf_index = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buf_index);
+    gl.bufferData(
+      gl.ELEMENT_ARRAY_BUFFER,
+      new Uint16Array(indices),
+      gl.STATIC_DRAW
+    );
+
+    gl.bindVertexArray(null);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, null);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+
+    this.num_indices = indices.length;
+  }
+  render(gl, V, P) {
+    let MVP = mat4.create();
+
+    mat4.copy(MVP, P);
+    mat4.multiply(MVP, MVP, V);
+
+    gl.useProgram(this.shader.h_prog);
+    gl.uniform3fv(this.shader.loc_uniforms["uControlPoints"], this.points);
+    gl.uniformMatrix4fv(this.shader.loc_uniforms["MVP"], false, MVP);
+    gl.bindVertexArray(this.vao);
+    gl.drawElementsInstanced(
+      gl.TRIANGLES,
+      this.num_indices,
+      gl.UNSIGNED_SHORT,
+      0,
+      16
+    );
+    // gl.drawElements(gl.TRIANGLES, this.num_indices, gl.UNSIGNED_SHORT, 0);
+  }
+}
+
 class Points {
   constructor(gl, src_vert, src_frag, src_frag_id, width, height) {
     this.MVP = mat4.create();
@@ -494,10 +625,11 @@ class Points {
   }
 
   init_vbo(gl, l) {
-    this.count = 8;
+    this.count = 16;
+    this.pointPosVertexSize = 3;
     // prettier-ignore
     this.points = new Float32Array([
-      -1, -1, -1, 
+      -1, -1, -1,
       -1, 1, -1, 
       1, 1, -1, 
       1, -1, -1,
@@ -505,9 +637,20 @@ class Points {
       -1, 1, 1, 
       1, 1, 1,
       1, -1, 1,
+      -2, -2, -1,
+      -2, 2, -1,
+      2, 2, -1,
+      2, -2, -1,
+      -2, -2, 1,
+      -2, 2, 1,
+      2, 2, 1,
+      2, -2, 1,
     ]);
 
-    const ids = new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7]);
+    this.pointColorVertexSize = 1;
+    const ids = new Uint8Array([
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+    ]);
     this.vao = gl.createVertexArray();
     gl.bindVertexArray(this.vao);
 
@@ -515,14 +658,28 @@ class Points {
     gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo_position);
     gl.bufferData(gl.ARRAY_BUFFER, this.points, gl.DYNAMIC_DRAW); // DYNAMI_DRAW!!!
 
-    gl.vertexAttribPointer(loc_aPosition, 3, gl.FLOAT, false, 0, 0);
+    gl.vertexAttribPointer(
+      loc_aPosition,
+      this.pointPosVertexSize,
+      gl.FLOAT,
+      false, // normalize
+      0,
+      0
+    );
     gl.enableVertexAttribArray(loc_aPosition);
 
     const vbo_id = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, vbo_id);
     gl.bufferData(gl.ARRAY_BUFFER, ids, gl.STATIC_DRAW);
 
-    gl.vertexAttribPointer(loc_aColor, 1, gl.UNSIGNED_BYTE, true, 0, 0);
+    gl.vertexAttribPointer(
+      loc_aColor,
+      this.pointColorVertexSize,
+      gl.UNSIGNED_BYTE,
+      true, // normalize
+      0,
+      0
+    );
     gl.enableVertexAttribArray(loc_aColor);
 
     gl.bindVertexArray(null);
@@ -537,7 +694,7 @@ class Points {
     gl.useProgram(Points.shader.h_prog);
     gl.bindVertexArray(this.vao);
     this.set_uniform_matrices(gl, Points.shader, V, P);
-    gl.drawArrays(gl.POINTS, 0, 8);
+    gl.drawArrays(gl.POINTS, 0, this.count);
     gl.bindVertexArray(null);
     gl.useProgram(null);
   }
@@ -545,7 +702,7 @@ class Points {
     gl.useProgram(Points.shader_id.h_prog);
     gl.bindVertexArray(this.vao);
     this.set_uniform_matrices(gl, Points.shader_id, V, P);
-    gl.drawArrays(gl.POINTS, 0, 8);
+    gl.drawArrays(gl.POINTS, 0, this.count);
     gl.bindVertexArray(null);
     gl.useProgram(null);
   }
