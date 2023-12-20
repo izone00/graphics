@@ -509,13 +509,14 @@ class Donut {
    */
   constructor(gl, N, image, src_vert, src_frag, light, material, points) {
     this.init_donut(gl, N);
+    this.init_texture(gl, image);
     this.shader = new Shader(gl, src_vert, src_frag, [
       "MVP",
       "uControlPoints",
       "uConnectivity",
     ]);
+
     this.points = points;
-    console.log(this.shader.loc_uniforms);
 
     gl.useProgram(this.shader.h_prog);
     // prettier-ignore
@@ -524,16 +525,26 @@ class Donut {
       13, 16, 15, 14,
       9, 12, 11, 10,
       1, 4, 3, 2,
-
       9,12,11,10,1,4,3,2,5,8,7,6,13,16,15,14,
       1,4,3,2,5,8,7,6,13,16,15,14,9,12,11,10,
       13,16,15,14,9,12,11,10,1,4,3,2,5,8,7,6,
 
-    //   8, 7, 6, 5,
-    //   16, 15, 14, 13,
-    //   12, 11, 10, 9,
-    //   4, 3, 2, 1,
+      8,7,6,5,16,15,14,13,12,11,10,9,4,3,2,1,
+      16,15,14,13,12,11,10,9,4,3,2,1,8,7,6,5,
+      12,11,10,9,4,3,2,1,8,7,6,5,16,15,14,13,
+      4,3,2,1,8,7,6,5,16,15,14,13,12,11,10,9,
+
+      6,5,8,7,14,13,16,15,10,9,12,11,2,1,4,3,
+      14,13,16,15,10,9,12,11,2,1,4,3,6,5,8,7,
+      10,9,12,11,2,1,4,3,6,5,8,7,14,13,16,15,
+      2,1,4,3,6,5,8,7,14,13,16,15,10,9,12,11,
+      
+      7,6,5,8,15,14,13,16,11,10,9,12,3,2,1,4,
+      15,14,13,16,11,10,9,12,3,2,1,4,7,6,5,8,
+      11,10,9,12,3,2,1,4,7,6,5,8,15,14,13,16,
+      3,2,1,4,7,6,5,8,15,14,13,16,11,10,9,12,
     ]);
+    gl.uniform1i(this.shader.loc_uniforms["tex"], TEXUNIT_PATCH);
     gl.uniformMatrix4fv(this.shader.loc_uniforms["uConnectivity"], false, conn);
     gl.useProgram(null);
   }
@@ -593,6 +604,19 @@ class Donut {
 
     this.num_indices = indices.length;
   }
+  init_texture(gl, image) {
+    this.texture = gl.createTexture();
+
+    gl.bindTexture(gl.TEXTURE_2D, this.texture);
+
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+
+    gl.bindTexture(gl.TEXTURE_2D, null);
+  }
   render(gl, V, P) {
     let MVP = mat4.create();
 
@@ -602,6 +626,8 @@ class Donut {
     gl.useProgram(this.shader.h_prog);
     gl.uniform3fv(this.shader.loc_uniforms["uControlPoints"], this.points);
     gl.uniformMatrix4fv(this.shader.loc_uniforms["MVP"], false, MVP);
+    gl.activeTexture(gl.TEXTURE0 + TEXUNIT_PATCH);
+    gl.bindTexture(gl.TEXTURE_2D, this.texture);
     gl.bindVertexArray(this.vao);
     gl.drawElementsInstanced(
       gl.TRIANGLES,
