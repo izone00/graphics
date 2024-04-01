@@ -1,8 +1,8 @@
 /** @type {mat4} */
-import * as mat4 from "../lib/gl-matrix/mat4.js";
+import * as mat4 from "./lib/gl-matrix/mat4.js";
 /** @type {vec4} */
-import * as vec4 from "../lib/gl-matrix/vec4.js";
-import { toRadian } from "../lib/gl-matrix/common.js";
+import * as vec4 from "./lib/gl-matrix/vec4.js";
+import { toRadian } from "./lib/gl-matrix/common.js";
 
 ("use strict");
 
